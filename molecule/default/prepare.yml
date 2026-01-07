@@ -1,0 +1,45 @@
+---
+- name: Prepare
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    podman_user_name: podman
+
+  tasks:
+    - name: Ensure /etc/containers directory exists
+      ansible.builtin.file:
+        path: /etc/containers
+        state: directory
+        mode: '0755'
+
+    - name: Configure Podman storage for nested containers (system-wide)
+      ansible.builtin.copy:
+        dest: /etc/containers/storage.conf
+        mode: '0644'
+        content: |
+          [storage]
+          driver = "vfs"
+          runroot = "/run/containers/storage"
+          graphroot = "/var/lib/containers/storage"
+
+          [storage.options]
+          ignore_chown_errors = "true"
+
+    - name: Ensure system dbus is running
+      ansible.builtin.systemd_service:
+        name: dbus
+        state: started
+
+    - name: Check if Pi-hole FQDN already in /etc/hosts
+      ansible.builtin.command:
+        cmd: grep -q "pihole.test.local" /etc/hosts
+      register: pihole_hosts_check
+      failed_when: false
+      changed_when: false
+
+    - name: Add Pi-hole FQDN to /etc/hosts for testing
+      ansible.builtin.shell:
+        cmd: echo "127.0.0.1 pihole.test.local" >> /etc/hosts
+      when: pihole_hosts_check.rc != 0

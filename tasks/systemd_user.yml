@@ -1,0 +1,31 @@
+---
+- name: Reload systemd user daemon (rootless)
+  become: true
+  become_user: "{{ pihole_podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "{{ pihole_xdg_runtime_dir }}"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    scope: user
+
+- name: Enable and start Pi-hole container (rootless)
+  become: true
+  become_user: "{{ pihole_podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "{{ pihole_xdg_runtime_dir }}"
+  ansible.builtin.systemd_service:
+    name: pihole.service
+    enabled: true
+    state: started
+    scope: user
+
+- name: Enable and start Caddy container (rootless)
+  become: true
+  become_user: "{{ pihole_podman_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "{{ pihole_xdg_runtime_dir }}"
+  ansible.builtin.systemd_service:
+    name: caddy.service
+    enabled: true
+    state: started
+    scope: user

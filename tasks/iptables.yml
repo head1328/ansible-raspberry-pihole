@@ -1,0 +1,163 @@
+---
+# Purpose:
+# - Redirect DNS traffic (53/tcp, 53/udp) -> {{ pihole_dns_port }}
+# - Redirect HTTPS traffic (443/tcp)      -> {{ pihole_https_port }}
+# - IPv4 + IPv6
+# - Persist rules if iptables-persistent is in use
+#
+# Assumptions:
+# - Containers listen only on high ports (rootless Podman)
+# - Security policy forbids binding 53 / 443 directly
+# - Port redirection is handled exclusively via iptables
+# - pihole is NOT a DHCP server
+
+# -------------------------------------------------------------------
+# Check for existing persistent iptables configuration
+# -------------------------------------------------------------------
+
+- name: Check if iptables IPv4 config exists
+  become: true
+  ansible.builtin.stat:
+    path: /etc/iptables/rules.v4
+  register: pihole_iptables_rules_v4
+
+- name: Check if iptables IPv6 config exists
+  become: true
+  ansible.builtin.stat:
+    path: /etc/iptables/rules.v6
+  register: pihole_iptables_rules_v6
+
+# -------------------------------------------------------------------
+# Ensure iptables-persistent
+# -------------------------------------------------------------------
+
+- name: Install iptables-persistent
+  become: true
+  ansible.builtin.apt:
+    name: iptables-persistent
+    state: present
+    update_cache: true
+    cache_valid_time: 86400
+
+- name: Enable and start netfilter-persistent
+  become: true
+  ansible.builtin.systemd_service:
+    name: netfilter-persistent
+    enabled: true
+    state: started
+
+# -------------------------------------------------------------------
+# NAT rules: DNS + HTTPS
+# -------------------------------------------------------------------
+
+- name: Configure iptables port redirection for Pi-hole and Caddy
+  become: true
+  block:
+
+    # -----------------------------
+    # DNS (IPv4)
+    # -----------------------------
+
+    - name: Redirect DNS IPv4 TCP 53 -> {{ pihole_dns_port }}
+      ansible.builtin.iptables:
+        table: nat
+        chain: PREROUTING
+        in_interface: "{{ pihole_in_interface }}"
+        protocol: tcp
+        destination_port: 53
+        jump: REDIRECT
+        to_ports: "{{ pihole_dns_port }}"
+      register: pihole_iptables_dns_tcp_v4
+
+    - name: Redirect DNS IPv4 UDP 53 -> {{ pihole_dns_port }}
+      ansible.builtin.iptables:
+        table: nat
+        chain: PREROUTING
+        in_interface: "{{ pihole_in_interface }}"
+        protocol: udp
+        destination_port: 53
+        jump: REDIRECT
+        to_ports: "{{ pihole_dns_port }}"
+      register: pihole_iptables_dns_udp_v4
+
+    # -----------------------------
+    # DNS (IPv6)
+    # -----------------------------
+
+    - name: Redirect DNS IPv6 TCP 53 -> {{ pihole_dns_port }}
+      ansible.builtin.iptables:
+        table: nat
+        chain: PREROUTING
+        in_interface: "{{ pihole_in_interface }}"
+        protocol: tcp
+        destination_port: 53
+        jump: REDIRECT
+        to_ports: "{{ pihole_dns_port }}"
+        ip_version: ipv6
+      register: pihole_iptables_dns_tcp_v6
+
+    - name: Redirect DNS IPv6 UDP 53 -> {{ pihole_dns_port }}
+      ansible.builtin.iptables:
+        table: nat
+        chain: PREROUTING
+        in_interface: "{{ pihole_in_interface }}"
+        protocol: udp
+        destination_port: 53
+        jump: REDIRECT
+        to_ports: "{{ pihole_dns_port }}"
+        ip_version: ipv6
+      register: pihole_iptables_dns_udp_v6
+
+    # -----------------------------
+    # HTTPS (IPv4)
+    # -----------------------------
+
+    - name: Redirect HTTPS IPv4 TCP 443 -> {{ pihole_https_port }}
+      ansible.builtin.iptables:
+        table: nat
+        chain: PREROUTING
+        in_interface: "{{ pihole_in_interface }}"
+        protocol: tcp
+        destination_port: 443
+        jump: REDIRECT
+        to_ports: "{{ pihole_https_port }}"
+      register: pihole_iptables_https_v4
+
+    # -----------------------------
+    # HTTPS (IPv6)
+    # -----------------------------
+
+    - name: Redirect HTTPS IPv6 TCP 443 -> {{ pihole_https_port }}
+      ansible.builtin.iptables:
+        table: nat
+        chain: PREROUTING
+        in_interface: "{{ pihole_in_interface }}"
+        protocol: tcp
+        destination_port: 443
+        jump: REDIRECT
+        to_ports: "{{ pihole_https_port }}"
+        ip_version: ipv6
+      register: pihole_iptables_https_v6
+
+    # -----------------------------
+    # Persist rules
+    # -----------------------------
+
+    - name: Save iptables IPv4 rules
+      community.general.iptables_state:
+        state: saved
+        path: /etc/iptables/rules.v4
+      when: >
+        pihole_iptables_dns_tcp_v4 is changed or
+        pihole_iptables_dns_udp_v4 is changed or
+        pihole_iptables_https_v4 is changed
+
+    - name: Save iptables IPv6 rules
+      community.general.iptables_state:
+        state: saved
+        path: /etc/iptables/rules.v6
+        ip_version: ipv6
+      when: >
+        pihole_iptables_dns_tcp_v6 is changed or
+        pihole_iptables_dns_udp_v6 is changed or
+        pihole_iptables_https_v6 is changed

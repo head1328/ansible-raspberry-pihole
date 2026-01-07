@@ -1,0 +1,27 @@
+---
+- name: Lookup podman user information
+  become: true
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ pihole_podman_user }}"
+  register: pihole_podman_getent
+
+- name: Set XDG_RUNTIME_DIR for podman user
+  ansible.builtin.set_fact:
+    pihole_xdg_runtime_dir: "/run/user/{{ pihole_podman_getent.ansible_facts.getent_passwd[pihole_podman_user][1] }}"
+
+- name: Configure Pi-hole and Caddy quadlets (rootless)
+  ansible.builtin.include_tasks: quadlets.yml
+
+- name: Enable rootless systemd user services
+  ansible.builtin.include_tasks: systemd_user.yml
+
+- name: Configure Podman auto-update timer
+  ansible.builtin.include_tasks: autoupdate.yml
+
+- name: Configure iptables for Pi-hole DNS redirection
+  ansible.builtin.include_tasks: iptables.yml
+
+- name: Print Pi-hole endpoint
+  ansible.builtin.debug:
+    msg: "Pi-hole is available at https://{{ pihole_fqdn }}"

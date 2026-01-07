@@ -1,0 +1,8 @@
+---
+roles:
+  - name: head1328.podman
+    version: "v0.1.0"
+
+collections:
+  - name: community.general
+  - name: containers.podman

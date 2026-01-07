@@ -1,0 +1,96 @@
+---
+- name: Ensure quadlet directory exists (rootless)
+  become: true
+  become_user: "{{ pihole_podman_user }}"
+  ansible.builtin.file:
+    path: "{{ pihole_podman_home }}/.config/containers/systemd"
+    state: directory
+    mode: '0755'
+
+- name: Ensure Caddy config directory exists
+  become: true
+  ansible.builtin.file:
+    path: /etc/caddy
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Deploy Caddyfile
+  become: true
+  ansible.builtin.template:
+    src: Caddyfile.j2
+    dest: /etc/caddy/Caddyfile
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Handle Caddy changes
+
+- name: Ensure shared podman network exists (rootless)
+  become: true
+  become_user: "{{ pihole_podman_user }}"
+  containers.podman.podman_network:
+    name: internal
+    state: present
+
+- name: Create Pi-hole quadlet (rootless)
+  become: true
+  become_user: "{{ pihole_podman_user }}"
+  containers.podman.podman_container:
+    name: pihole
+    hostname: "{{ pihole_fqdn }}"
+    image: "{{ pihole_image }}"
+    state: quadlet
+    quadlet_dir: "{{ pihole_podman_home }}/.config/containers/systemd"
+    network:
+      - internal
+    publish:
+      - "{{ pihole_dns_port }}:53/tcp"
+      - "{{ pihole_dns_port }}:53/udp"
+    env:
+      TZ: "{{ pihole_timezone }}"
+      FTLCONF_dns_upstreams: "{{ pihole_dns_upstreams }}"
+      FTLCONF_dns_listeningMode: all
+      FTLCONF_webserver_api_password: "{{ pihole_password }}"
+    cap_add:
+      - SYS_NICE
+    volume:
+      - "pihole-etc-pihole:/etc/pihole:Z"
+      - "pihole-etc-dnsmasq.d:/etc/dnsmasq.d:Z"
+    quadlet_options:
+      - |
+        [Install]
+        WantedBy=default.target
+        {% if pihole_autoupdate_enabled | default(true) %}
+
+        [Container]
+        AutoUpdate=registry
+        {% endif %}
+  notify: Handle Pi-hole changes
+
+- name: Create Caddy quadlet (rootless)
+  become: true
+  become_user: "{{ pihole_podman_user }}"
+  containers.podman.podman_container:
+    name: caddy
+    image: docker.io/caddy:latest
+    state: quadlet
+    quadlet_dir: "{{ pihole_podman_home }}/.config/containers/systemd"
+    network:
+      - internal
+    publish:
+      - "{{ pihole_https_port }}:443/tcp"
+    volume:
+      - "/etc/caddy/Caddyfile:/etc/caddy/Caddyfile:ro,Z"
+      - "caddy-data:/data:Z"
+      - "caddy-config:/config:Z"
+    quadlet_options:
+      - |
+        [Install]
+        WantedBy=default.target
+        {% if pihole_autoupdate_enabled | default(true) %}
+
+        [Container]
+        AutoUpdate=registry
+        {% endif %}
+  notify: Handle Caddy changes

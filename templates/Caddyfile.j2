@@ -1,0 +1,9 @@
+{{ pihole_fqdn }} {
+    tls internal
+    encode gzip
+
+    @root path /
+    redir @root /admin 302
+
+    reverse_proxy pihole:80
+}
