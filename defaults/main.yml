@@ -1,0 +1,39 @@
+---
+# Pi-hole container image
+pihole_image: docker.io/pihole/pihole:latest
+
+# Pi-hole admin password (override in group_vars!)
+pihole_password: changeme
+
+pihole_timezone: UTC
+
+# DNS upstreams for Pi-hole, e.g. Freifunk München (FFMUC) DNS resolvers
+pihole_dns_upstreams: "5.1.66.255;185.150.99.255"
+
+# Pi-hole web FQDN (used by Caddy)
+pihole_fqdn: pihole.example.local
+
+# DNS port exposed on the host
+pihole_dns_port: 5353
+
+# HTTPS port exposed on the host (forwarded externally if needed)
+pihole_https_port: 8443
+
+# Network interface where DNS traffic arrives (e.g. eth0, br-lan)
+pihole_in_interface: eth0
+
+# Rootless podman user settings
+pihole_podman_user: podman
+pihole_podman_home: "/home/{{ pihole_podman_user }}"
+
+# Enable automatic image updates from registry
+pihole_autoupdate_enabled: true
+
+# Time when auto-update should run (OnCalendar format, see systemd.time)
+# Examples: "03:00" (3 AM daily), "*-*-* 04:30:00" (4:30 AM daily)
+# Set different times per host to avoid simultaneous updates
+pihole_autoupdate_time: "03:00"
+
+# Optional: Add random delay to prevent exact simultaneous updates (in seconds)
+# Set to 0 to disable
+pihole_autoupdate_random_delay: 900  # 15 minutes

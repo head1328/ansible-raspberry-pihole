@@ -1,0 +1,14 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    podman_user_name: podman
+    pihole_podman_user: podman
+    pihole_password: test123
+    pihole_fqdn: pihole.test.local
+
+  roles:
+    - role: head1328.pihole

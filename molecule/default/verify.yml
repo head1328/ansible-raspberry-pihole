@@ -1,0 +1,314 @@
+---
+- name: Verify
+  hosts: all
+  become: false
+  gather_facts: true
+
+  vars:
+    podman_user_name: podman
+    podman_user_group: podman
+    pihole_podman_user: podman
+    pihole_dns_port: 5353
+    pihole_https_port: 8443
+
+  tasks:
+    # =====================================
+    # Podman user verification
+    # =====================================
+
+    - name: Verify podman user exists
+      become: true
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ pihole_podman_user }}"
+      register: verify_podman_user
+
+    - name: Assert podman user exists
+      ansible.builtin.assert:
+        that:
+          - verify_podman_user.ansible_facts.getent_passwd[pihole_podman_user] is defined
+        fail_msg: "Podman user '{{ pihole_podman_user }}' does not exist"
+        success_msg: "Podman user '{{ pihole_podman_user }}' exists"
+
+    # =====================================
+    # Quadlet files verification
+    # =====================================
+
+    - name: Check if Pi-hole quadlet file exists
+      become: true
+      become_user: "{{ pihole_podman_user }}"
+      ansible.builtin.stat:
+        path: "/home/{{ pihole_podman_user }}/.config/containers/systemd/pihole.container"
+      register: verify_pihole_quadlet
+
+    - name: Assert Pi-hole quadlet exists
+      ansible.builtin.assert:
+        that:
+          - verify_pihole_quadlet.stat.exists
+        fail_msg: "Pi-hole quadlet file does not exist"
+        success_msg: "Pi-hole quadlet file exists"
+
+    - name: Check if Caddy quadlet file exists
+      become: true
+      become_user: "{{ pihole_podman_user }}"
+      ansible.builtin.stat:
+        path: "/home/{{ pihole_podman_user }}/.config/containers/systemd/caddy.container"
+      register: verify_caddy_quadlet
+
+    - name: Assert Caddy quadlet exists
+      ansible.builtin.assert:
+        that:
+          - verify_caddy_quadlet.stat.exists
+        fail_msg: "Caddy quadlet file does not exist"
+        success_msg: "Caddy quadlet file exists"
+
+    # =====================================
+    # Systemd services verification
+    # =====================================
+
+    - name: Get XDG_RUNTIME_DIR for podman user
+      become: true
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ pihole_podman_user }}"
+      register: verify_getent
+
+    - name: Set XDG_RUNTIME_DIR fact
+      ansible.builtin.set_fact:
+        verify_xdg_runtime_dir: "/run/user/{{ verify_getent.ansible_facts.getent_passwd[pihole_podman_user][1] }}"
+
+    - name: Check Pi-hole service status
+      become: true
+      become_user: "{{ pihole_podman_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "{{ verify_xdg_runtime_dir }}"
+      ansible.builtin.systemd_service:
+        name: pihole.service
+        scope: user
+      register: verify_pihole_service
+      failed_when: false
+
+    - name: Assert Pi-hole service is running
+      ansible.builtin.assert:
+        that:
+          - verify_pihole_service.status.ActiveState == "active"
+          - verify_pihole_service.status.UnitFileState in ["enabled", "generated"]
+        fail_msg: "Pi-hole service is not running or not enabled/generated"
+        success_msg: "Pi-hole service is running and enabled/generated"
+
+    - name: Check Caddy service status
+      become: true
+      become_user: "{{ pihole_podman_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "{{ verify_xdg_runtime_dir }}"
+      ansible.builtin.systemd_service:
+        name: caddy.service
+        scope: user
+      register: verify_caddy_service
+      failed_when: false
+
+    - name: Assert Caddy service is running
+      ansible.builtin.assert:
+        that:
+          - verify_caddy_service.status.ActiveState == "active"
+          - verify_caddy_service.status.UnitFileState in ["enabled", "generated"]
+        fail_msg: "Caddy service is not running or not enabled/generated"
+        success_msg: "Caddy service is running and enabled/generated"
+
+    # =====================================
+    # Container verification
+    # =====================================
+
+    - name: List running containers
+      become: true
+      become_user: "{{ pihole_podman_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "{{ verify_xdg_runtime_dir }}"
+      containers.podman.podman_container_info:
+      register: verify_containers
+
+    - name: Assert Pi-hole container is running
+      ansible.builtin.assert:
+        that:
+          - verify_containers.containers | selectattr('Name', 'equalto', 'pihole') | list | length == 1
+          - (verify_containers.containers | selectattr('Name', 'equalto', 'pihole') | first).State.Running
+        fail_msg: "Pi-hole container is not running"
+        success_msg: "Pi-hole container is running"
+
+    - name: Assert Caddy container is running
+      ansible.builtin.assert:
+        that:
+          - verify_containers.containers | selectattr('Name', 'equalto', 'caddy') | list | length == 1
+          - (verify_containers.containers | selectattr('Name', 'equalto', 'caddy') | first).State.Running
+        fail_msg: "Caddy container is not running"
+        success_msg: "Caddy container is running"
+
+    # =====================================
+    # Network verification
+    # =====================================
+
+    - name: List Podman networks
+      become: true
+      become_user: "{{ pihole_podman_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "{{ verify_xdg_runtime_dir }}"
+      containers.podman.podman_network_info:
+      register: verify_networks
+
+    - name: Assert internal network exists
+      ansible.builtin.assert:
+        that:
+          - verify_networks.networks | selectattr('name', 'equalto', 'internal') | list | length == 1
+        fail_msg: "Internal Podman network does not exist"
+        success_msg: "Internal Podman network exists"
+
+    # =====================================
+    # Port binding verification
+    # =====================================
+
+    - name: Check if DNS port is listening
+      become: true
+      ansible.builtin.wait_for:
+        port: "{{ pihole_dns_port }}"
+        timeout: 10
+      register: verify_dns_port
+
+    - name: Check if HTTPS port is listening
+      become: true
+      ansible.builtin.wait_for:
+        port: "{{ pihole_https_port }}"
+        timeout: 10
+      register: verify_https_port
+
+    # =====================================
+    # Caddyfile verification
+    # =====================================
+
+    - name: Check if Caddyfile exists
+      become: true
+      ansible.builtin.stat:
+        path: /etc/caddy/Caddyfile
+      register: verify_caddyfile
+
+    - name: Assert Caddyfile exists
+      ansible.builtin.assert:
+        that:
+          - verify_caddyfile.stat.exists
+        fail_msg: "Caddyfile does not exist"
+        success_msg: "Caddyfile exists"
+
+    # =====================================
+    # Auto-update timer verification
+    # =====================================
+
+    - name: Check if auto-update timer override exists
+      become: true
+      become_user: "{{ pihole_podman_user }}"
+      ansible.builtin.stat:
+        path: "/home/{{ pihole_podman_user }}/.config/systemd/user/podman-auto-update.timer.d/override.conf"
+      register: verify_autoupdate_override
+
+    - name: Assert auto-update timer override exists
+      ansible.builtin.assert:
+        that:
+          - verify_autoupdate_override.stat.exists
+        fail_msg: "Auto-update timer override does not exist"
+        success_msg: "Auto-update timer override exists"
+
+    - name: Check auto-update timer status
+      become: true
+      become_user: "{{ pihole_podman_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "{{ verify_xdg_runtime_dir }}"
+      ansible.builtin.systemd_service:
+        name: podman-auto-update.timer
+        scope: user
+      register: verify_autoupdate_timer
+      failed_when: false
+
+    - name: Assert auto-update timer is enabled
+      ansible.builtin.assert:
+        that:
+          - verify_autoupdate_timer.status.UnitFileState == "enabled"
+        fail_msg: "Auto-update timer is not enabled"
+        success_msg: "Auto-update timer is enabled"
+
+    # =====================================
+    # iptables rules verification
+    # =====================================
+
+    - name: Check iptables rules for DNS redirection (IPv4 TCP)
+      become: true
+      ansible.builtin.command:
+        cmd: iptables -t nat -L PREROUTING -n -v
+      register: verify_iptables_v4
+      changed_when: false
+
+    - name: Assert iptables DNS rules exist (IPv4)
+      ansible.builtin.assert:
+        that:
+          - "'dpt:53' in verify_iptables_v4.stdout"
+          - "'redir ports ' + pihole_dns_port|string in verify_iptables_v4.stdout"
+        fail_msg: "iptables DNS redirection rules (IPv4) not found"
+        success_msg: "iptables DNS redirection rules (IPv4) exist"
+
+    - name: Check ip6tables rules for DNS redirection (IPv6 TCP)
+      become: true
+      ansible.builtin.command:
+        cmd: ip6tables -t nat -L PREROUTING -n -v
+      register: verify_iptables_v6
+      changed_when: false
+
+    - name: Assert ip6tables DNS rules exist (IPv6)
+      ansible.builtin.assert:
+        that:
+          - "'dpt:53' in verify_iptables_v6.stdout"
+          - "'redir ports ' + pihole_dns_port|string in verify_iptables_v6.stdout"
+        fail_msg: "ip6tables DNS redirection rules (IPv6) not found"
+        success_msg: "ip6tables DNS redirection rules (IPv6) exist"
+
+    # =====================================
+    # HTTP Endpoint verification
+    # Note: We test port 8443 directly because iptables REDIRECT
+    # does not work for local connections within the container.
+    # In production, external clients will use port 443 which
+    # gets redirected to 8443 via iptables.
+    # =====================================
+
+    - name: Wait for Pi-hole HTTPS endpoint to be ready
+      ansible.builtin.uri:
+        url: "https://pihole.test.local:{{ pihole_https_port }}/admin/"
+        validate_certs: false
+        status_code: 200
+        return_content: true
+      register: verify_pihole_web
+      retries: 30
+      delay: 2
+      until: verify_pihole_web.status == 200
+      changed_when: false
+
+    - name: Assert Pi-hole web interface is accessible
+      ansible.builtin.assert:
+        that:
+          - verify_pihole_web.status == 200
+          - "'Pi-hole' in verify_pihole_web.content or 'pihole' in verify_pihole_web.content.lower()"
+        fail_msg: "Pi-hole web interface is not accessible or not returning expected content"
+        success_msg: "Pi-hole web interface is accessible via FQDN through Caddy"
+
+    - name: Verify Pi-hole API responds (expects 401 Unauthorized without auth)
+      ansible.builtin.uri:
+        url: "https://pihole.test.local:{{ pihole_https_port }}/api/stats/summary"
+        validate_certs: false
+        status_code: 401
+        return_content: true
+      register: verify_pihole_api
+      changed_when: false
+
+    - name: Assert Pi-hole API is reachable
+      ansible.builtin.assert:
+        that:
+          - verify_pihole_api.status == 401
+          - verify_pihole_api.content_type is search('application/json')
+          - verify_pihole_api.json is defined
+        fail_msg: "Pi-hole API is not responding correctly"
+        success_msg: "Pi-hole API is reachable and responding with JSON (401 = auth required, expected)"

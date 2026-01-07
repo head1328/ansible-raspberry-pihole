@@ -1,0 +1,21 @@
+galaxy_info:
+  role_name: pihole
+  namespace: head1328
+  description: Install Pi-hole using Podman containers.
+  author: Kevin Horst <info@kevinhorst.de>
+  company: KevinHorst IT
+  license: AGPL-3.0-or-later
+  min_ansible_version: '2.20.0'
+  platforms:
+    - name: Debian
+      versions:
+        - trixie
+  galaxy_tags:
+    - raspberry
+    - pi
+    - raspberrypi
+    - podman
+    - pihole
+
+dependencies:
+  - role: head1328.podman

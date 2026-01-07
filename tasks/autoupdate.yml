@@ -1,0 +1,56 @@
+---
+- name: Configure Podman auto-update timer
+  when: pihole_autoupdate_enabled | default(true)
+  block:
+    - name: Ensure systemd user timer override directory exists
+      become: true
+      become_user: "{{ pihole_podman_user }}"
+      ansible.builtin.file:
+        path: "{{ pihole_podman_home }}/.config/systemd/user/podman-auto-update.timer.d"
+        state: directory
+        mode: '0755'
+
+    - name: Deploy auto-update timer override
+      become: true
+      become_user: "{{ pihole_podman_user }}"
+      ansible.builtin.copy:
+        dest: "{{ pihole_podman_home }}/.config/systemd/user/podman-auto-update.timer.d/override.conf"
+        mode: '0644'
+        content: |
+          [Timer]
+          OnCalendar=
+          OnCalendar={{ pihole_autoupdate_time }}
+          {% if pihole_autoupdate_random_delay | default(0) | int > 0 %}
+          RandomizedDelaySec={{ pihole_autoupdate_random_delay }}
+          {% endif %}
+      notify: Reload systemd user daemon
+
+    - name: Enable and start podman-auto-update.timer
+      become: true
+      become_user: "{{ pihole_podman_user }}"
+      ansible.builtin.systemd_service:
+        name: podman-auto-update.timer
+        enabled: true
+        state: started
+        scope: user
+
+- name: Disable Podman auto-update timer
+  when: not (pihole_autoupdate_enabled | default(true))
+  block:
+    - name: Stop and disable podman-auto-update.timer
+      become: true
+      become_user: "{{ pihole_podman_user }}"
+      ansible.builtin.systemd_service:
+        name: podman-auto-update.timer
+        enabled: false
+        state: stopped
+        scope: user
+      failed_when: false
+
+    - name: Remove auto-update timer override
+      become: true
+      become_user: "{{ pihole_podman_user }}"
+      ansible.builtin.file:
+        path: "{{ pihole_podman_home }}/.config/systemd/user/podman-auto-update.timer.d/override.conf"
+        state: absent
+      notify: Reload systemd user daemon
